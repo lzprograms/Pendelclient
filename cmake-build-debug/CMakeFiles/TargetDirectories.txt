@@ -1,0 +1,3 @@
+C:/Users/leoz0/CLionProjects/PendelClient/cmake-build-debug/CMakeFiles/PendelClient.dir
+C:/Users/leoz0/CLionProjects/PendelClient/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/Users/leoz0/CLionProjects/PendelClient/cmake-build-debug/CMakeFiles/rebuild_cache.dir
