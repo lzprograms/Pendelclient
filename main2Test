@@ -1,0 +1,130 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iostream>
+#include <string>
+#include <cmath>
+
+#pragma comment(lib, "ws2_32.lib")
+std::string message;
+// Liest genau eine Zeile ("\n") vom Server
+std::string recvLine(SOCKET sock) {
+    char buffer[1024];
+
+    while (true) {
+        size_t pos = message.find('\n');
+        if (pos == std::string::npos) {
+            int bytes = recv(sock, buffer, sizeof(buffer), 0);
+            if (bytes <= 0) return "";
+            message.append(buffer, bytes);
+        }
+        else{
+            std::string line = message.substr(0, pos);
+            message.erase(0, pos + 1);
+            return line;
+        }
+    }
+}
+
+// Sendet eine Zeile + "\n"
+void sendLine(SOCKET sock, const std::string &msg) {
+    message = ""; // reset received Message
+    std::string m = msg + "\n";
+    send(sock, m.c_str(), (int)m.size(), 0);
+}
+
+int main() {
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(8080);
+
+    // -----------------------------------------
+    // Benutzerdefinierte IP eingeben
+    // -----------------------------------------
+    std::string ip;
+    std::cout << "IP-Adresse eingeben: ";
+    std::cin >> ip;
+
+    if (inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr) <= 0) {
+        std::cout << "Ungültige IP-Adresse!\n";
+        return 1;
+    }
+
+    std::cout << "Verbinde zu " << ip << "...\n";
+
+    if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        std::cout << "Fehler: connect() fehlgeschlagen\n";
+        return 1;
+    }
+
+    std::cout << "Verbunden. Starte P-Regler...\n";
+
+
+
+
+    int acceleration = 0;
+    int pos = 0;
+    int targetPos = 2500;
+    int posSpeed = 0;
+    double angle = 0;
+    double angleIntegral = 0;
+    double angleVelocity = 0;
+    int targetAngle = 1200;
+
+
+    double u = 0;
+
+    while (true) {
+        std::string command;
+        if (angle > -50 && angle < 50) {
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed " + std::to_string(u);
+        }else{
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed 0";
+        }
+        sendLine(sock, command);
+        std::string angleStr = recvLine(sock);
+        std::string angleVelocityStr = recvLine(sock);
+        std::string posStr = recvLine(sock);
+        std::string speedStr = recvLine(sock);
+
+        pos = stoi(posStr);
+        posSpeed = stoi(speedStr);
+        pos -= targetPos;
+
+
+        angle = stoi(angleStr);
+        angle -= targetAngle;
+
+        angleVelocity = stoi(angleVelocityStr);
+
+
+        float pos_correction = pos * 5.0f * 0.00004*(std::max(0,25000-abs(posSpeed)));       // P-Anteil (Proportional zur Position)
+
+        const float K_D_POS = 0.000005f;
+        float pos_damping = K_D_POS * posSpeed * std::abs(posSpeed);
+
+        posSpeed -= (pos_correction - pos_damping);
+        //angle -= pos * 0.004f*(0.001f*std::max(0, 4000-abs(posSpeed)));
+        angle += 0.00077 * posSpeed;
+
+
+        if (angle > -50 && angle < 50) angleIntegral += angle;
+        if (angleIntegral<-1000) angleIntegral=-1000;
+        if (angleIntegral> 1000) angleIntegral= 1000;
+
+        //u = angle* -650.0f + angleIntegral * -4.0f;// + angleVelocity * 0.03; // vorher 650
+        //u = angle* -640.0f + angleIntegral * -4.0f + angleVelocity * 1.0; // vorher 650
+        u = angle* -480.0f + angleIntegral * -4.0f + angleVelocity * 3.0; // vorher 650
+        u = targetPos+u;
+
+
+    }
+
+    closesocket(sock);
+    WSACleanup();
+    return 0;
+}
