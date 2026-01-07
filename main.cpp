@@ -5,20 +5,19 @@
 #include <cmath>
 
 #pragma comment(lib, "ws2_32.lib")
-
+std::string message;
 // Liest genau eine Zeile ("\n") vom Server
 std::string recvLine(SOCKET sock) {
-    std::string message;
     char buffer[1024];
 
     while (true) {
-        int bytes = recv(sock, buffer, sizeof(buffer), 0);
-        if (bytes <= 0) return "";
-
-        message.append(buffer, bytes);
-
         size_t pos = message.find('\n');
-        if (pos != std::string::npos) {
+        if (pos == std::string::npos) {
+            int bytes = recv(sock, buffer, sizeof(buffer), 0);
+            if (bytes <= 0) return "";
+            message.append(buffer, bytes);
+        }
+        else{
             std::string line = message.substr(0, pos);
             message.erase(0, pos + 1);
             return line;
@@ -28,6 +27,7 @@ std::string recvLine(SOCKET sock) {
 
 // Sendet eine Zeile + "\n"
 void sendLine(SOCKET sock, const std::string &msg) {
+    message = ""; // reset received Message
     std::string m = msg + "\n";
     send(sock, m.c_str(), (int)m.size(), 0);
 }
@@ -63,59 +63,72 @@ int main() {
 
     std::cout << "Verbunden. Starte P-Regler...\n";
 
-    // ---------------------------
-    // P-Regler Parameter
-    // ---------------------------
-    const int zielWinkel = 1200;   // Sollwert
-    const float Kp = 5.0f;      // Verstärkung
-    const float Kd = 0.01f;
-    int aktuellerWinkel = 0;
-    int aktuelleGeschwindigkeit = 0;
+
+
+
+    int acceleration = 0;
+    int pos = 0;
+    int targetPos = 2500;
+    int posSpeed = 0;
+    double angle = 0;
+    int targetAngle = 1200;
+    double angleVelocity = 0;
+    double oldRawAngleVelocity = 0;
+    int posError;
+
+    float cPos = -2.5; //-2.7f;
+    float cPosSpeed = 0.47f;//0.48f; //0.46f;//2.5f;//5.9f;
+    float cAngle = 3000; //2040.0f;
+    float cAngleVelocity = 100.0f;//46.0f;//48.01f;//-4050.0f;
+    const float predictionFactor = 0.78f; // multiplies change in variables by factor
+    //used to predict value in the future
+    //proportion between time to recieve and process to send and drive motor
 
     while (true) {
+        std::string command;
+        if (angle > -100 && angle < 100) {
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetAcceleration " + std::to_string(acceleration);
+        }else {
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed 0";
+        }
+        sendLine(sock, command);
+        std::string angleStr = recvLine(sock);
+        std::string angleVelocityStr = recvLine(sock);
+        std::string posStr = recvLine(sock);
+        std::string speedStr = recvLine(sock);
 
-        // 1) Winkel abfragen
-        sendLine(sock, "getAngle");
+        posError -= pos;
+        if (posError <  -15000) posError = -15000;
+        if (posError >   15000) posError =  15000;
 
-        // 2) Antwort empfangen
-       std::string angleStr = recvLine(sock);
-
-        sendLine(sock, "getAngleVelocity");
-
-        // 2) Antwort empfangen
-        std::string angleVelStr = recvLine(sock);
         if (angleStr.empty()) {
             std::cout << "Server getrennt.\n";
             break;
         }
 
-        aktuellerWinkel = std::stoi(angleStr);
-        aktuelleGeschwindigkeit = std::stoi(angleVelStr);
-        //std::cout << "Winkel: " << aktuellerWinkel <<
-        //    "aktuelle Geschwindigkeit: " << aktuelleGeschwindigkeit << "\n";
+        double newAngle = std::stoi(angleStr);
+        angle = newAngle + ((angle+targetAngle)-newAngle) * predictionFactor; // predicted value when signal reaches Motor
+        //angle = newAngle;
+        angle = angle-targetAngle;
+        //angle -= round(pos * 0.01);
+        double newRawAngleVelocity = std::stoi(angleVelocityStr);
+        newRawAngleVelocity = 0.9 * newRawAngleVelocity + 0.1 * oldRawAngleVelocity;
+        angleVelocity = newRawAngleVelocity + (newRawAngleVelocity - oldRawAngleVelocity) * predictionFactor;
+        oldRawAngleVelocity = newRawAngleVelocity;
+        //angleVelocity = newAngleVelocity;
+        pos = std::stoi(posStr);
+        pos = pos - targetPos;
 
-        // 3) Fehler berechnen
-        int error = zielWinkel - aktuellerWinkel;
+        double newPosSpeed = std::stoi(speedStr);
+        posSpeed = posSpeed + (newPosSpeed - posSpeed) * predictionFactor;
 
-        // 4) Stellgröße berechnen
-        int u = (int)std::round(Kp * error - Kd * aktuelleGeschwindigkeit);
+        acceleration = pos                  * cPos ;
+        acceleration += posSpeed            * cPosSpeed;
+        acceleration += angle               * cAngle;
+        acceleration += angleVelocity       * cAngleVelocity;
+        //acceleration += posError            * cPosError         *multiplicator;
 
-        // Begrenzen (optional)
-        if (u > 150) u = 150;
-        if (u < -150) u = -150;
-
-        //std::cout << "Sende Stellwert: " << u << "\n";
-
-        // 5) Setzkommando senden
-        sendLine(sock, "setRelPos " + std::to_string(u));
-
-        // 6) OK empfangen
-        std::string resp = recvLine(sock);
-        if (resp != "OK") {
-            std::cout << "Warnung: Antwort vom Server: " << resp << "\n";
-        }
-
-        Sleep(100);  // 100ms Loop
+        acceleration;
     }
 
     closesocket(sock);
