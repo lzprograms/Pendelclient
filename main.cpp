@@ -41,7 +41,7 @@ int main() {
 
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(8080);
+    serverAddr.sin_port = htons(8080); // Port
 
     // -----------------------------------------
     // Benutzerdefinierte IP eingeben
@@ -69,38 +69,41 @@ int main() {
     int targetPos = 2500;
     int posSpeed = 0;
     double angle = 0;
-    int targetAngle = 1202;
+    int targetAngle = 1202; // Abweichung durch krummes Pendel
     double pos = 0;
-    double u = 0;
+    double u = 0; //Stellgröße
     double angleVelocity = 0;
     double angleIntegral = 0;
 
     while (true) {
         std::string command;
         if (angle > -100 && angle < 100) {
-            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed " + std::to_string(u);
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed " + std::to_string(u); // Wenn das Pendel oben ist, wird dei Geschwindigkeit verändert
         }else {
-            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed 0";
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed 0"; //Wenn das Pendel unten ist, soll es still stehen
         }
         sendLine(sock, command);
-        std::string angleStr = recvLine(sock);
+        std::string angleStr = recvLine(sock); //Serverantwort als String zeilenweise einlesen
         std::string angleVelocityStr = recvLine(sock);
         std::string posStr = recvLine(sock);
         std::string speedStr = recvLine(sock);
 
-        angle = atoi(angleStr.c_str());
-        angle -= targetAngle;
+        angle = atoi(angleStr.c_str()); // Serverantwort von String in Zahlenwert umwandeln
+        angle -= targetAngle; // Zielwinkel abziehen, damit 0 oben ist.
         pos = atoi(posStr.c_str());
-        pos -= targetPos;
+        pos -= targetPos; // Zielposition (Mitte) abziehen, damit die Mitte bei 0 ist
         angleVelocity = atoi(angleVelocityStr.c_str());
         posSpeed = atoi(speedStr.c_str());
 
         angleIntegral += angle;
         std::clamp(angleIntegral, -20000.0, 20000.0);
 
-        double kp = 620.0;
-        double ki = 1.0;
-        double kd = 4.0;
+        // PID-Regler-Werte
+        double kp = 620.0; // Proportionalanteil des Winkels an der Stellgröße
+        double ki = 1.0;   // Integralanteil des Winkels an der Stellgröße
+        double kd = 4.0;   // D-Anteil des Winkels an der Stellgröße
+
+        // Dämpfung von Position und Schlittengeschwindigkeit
         double kdPos = 0.00095;
         posSpeed += pos;
         angle += posSpeed * kdPos;
