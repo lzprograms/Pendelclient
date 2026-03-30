@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iostream>
@@ -65,29 +66,19 @@ int main() {
 
 
 
-
-    int acceleration = 0;
-    int pos = 0;
     int targetPos = 2500;
     int posSpeed = 0;
     double angle = 0;
-    int targetAngle = 1200;
+    int targetAngle = 1202;
+    double pos = 0;
+    double u = 0;
     double angleVelocity = 0;
-    double oldRawAngleVelocity = 0;
-    int posError;
-
-    float cPos = -2.5; //-2.7f;
-    float cPosSpeed = 0.47f;//0.48f; //0.46f;//2.5f;//5.9f;
-    float cAngle = 3000; //2040.0f;
-    float cAngleVelocity = 100.0f;//46.0f;//48.01f;//-4050.0f;
-    const float predictionFactor = 0.78f; // multiplies change in variables by factor
-    //used to predict value in the future
-    //proportion between time to recieve and process to send and drive motor
+    double angleIntegral = 0;
 
     while (true) {
         std::string command;
         if (angle > -100 && angle < 100) {
-            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetAcceleration " + std::to_string(acceleration);
+            command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed " + std::to_string(u);
         }else {
             command = "getAngle\ngetAngleVelocity\ngetPos\ngetSpeed\nsetSpeed 0";
         }
@@ -97,40 +88,26 @@ int main() {
         std::string posStr = recvLine(sock);
         std::string speedStr = recvLine(sock);
 
-        posError -= pos;
-        if (posError <  -15000) posError = -15000;
-        if (posError >   15000) posError =  15000;
+        angle = atoi(angleStr.c_str());
+        angle -= targetAngle;
+        pos = atoi(posStr.c_str());
+        pos -= targetPos;
+        angleVelocity = atoi(angleVelocityStr.c_str());
+        posSpeed = atoi(speedStr.c_str());
 
-        if (angleStr.empty()) {
-            std::cout << "Server getrennt.\n";
-            break;
-        }
+        angleIntegral += angle;
+        std::clamp(angleIntegral, -20000.0, 20000.0);
 
-        double newAngle = std::stoi(angleStr);
-        angle = newAngle + ((angle+targetAngle)-newAngle) * predictionFactor; // predicted value when signal reaches Motor
-        //angle = newAngle;
-        angle = angle-targetAngle;
-        //angle -= round(pos * 0.01);
-        double newRawAngleVelocity = std::stoi(angleVelocityStr);
-        newRawAngleVelocity = 0.9 * newRawAngleVelocity + 0.1 * oldRawAngleVelocity;
-        angleVelocity = newRawAngleVelocity + (newRawAngleVelocity - oldRawAngleVelocity) * predictionFactor;
-        oldRawAngleVelocity = newRawAngleVelocity;
-        //angleVelocity = newAngleVelocity;
-        pos = std::stoi(posStr);
-        pos = pos - targetPos;
+        double kp = 620.0;
+        double ki = 1.0;
+        double kd = 4.0;
+        double kdPos = 0.00095;
+        posSpeed += pos;
+        angle += posSpeed * kdPos;
 
-        double newPosSpeed = std::stoi(speedStr);
-        posSpeed = posSpeed + (newPosSpeed - posSpeed) * predictionFactor;
+        u = angle * kp + angleVelocity * ki + angleVelocity * kd;
 
-        acceleration = pos                  * cPos ;
-        acceleration += posSpeed            * cPosSpeed;
-        acceleration += angle               * cAngle;
-        acceleration += angleVelocity       * cAngleVelocity;
-        //acceleration += posError            * cPosError         *multiplicator;
-
-        acceleration;
     }
-
     closesocket(sock);
     WSACleanup();
     return 0;
